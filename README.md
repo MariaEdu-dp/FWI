@@ -18,7 +18,7 @@ Os códigos podem ser utilizados no Pycharm ou no Google Colab. Para o Pycharm, 
    
    ![image](https://github.com/user-attachments/assets/19ec0248-c572-47f8-9b51-d373d8d64d40)
    
-   1.3 Vá para a aba *file*, e depois clique em *Close Project*.
+   1.3 No Pycharm, vá para a aba *file*, e depois clique em *Close Project*.
    
    1.4 Após aparecer a tela inicial, clique em Get from VCS.
    
