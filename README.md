@@ -40,4 +40,7 @@ Os códigos podem ser utilizados no Pycharm ou no Google Colab. Para o Pycharm, 
 
 3. Uso dos códigos
    Para fazer as análises e ter as visualizações, já com o projeto aberto, vá em qualquer arquivo .py no repositório, dentro de qualquer pasta, e clique na setinha verde.
-   **Atenção:** às vezes, ao lado da setinha, pode estar escrito _Current File_ ou _main_. Caso esteja escrito _main_, clique nele e depois em _Current File_, pois caso contrário, o Pycharm sempre irá interpretar (rodar) o mesmo código. 
+   **Atenção:** às vezes, ao lado da setinha, pode estar escrito _Current File_ ou _main_. Caso esteja escrito _main_, clique nele e depois em _Current File_, pois caso contrário, o Pycharm sempre irá interpretar (rodar) o mesmo código.
+
+***AVISO: na pasta datasets, tem um arquivo file.nc de exemplo, pois os dados do FWI são maiores do que o permitido pelo github, portanto, não foi possível fazer upload.***
+Para utilizar os dados do FWI, copie e cole os arquivos de interesse (ex. FWI.nc) ou recorte para a pasta datasets. Delete o arquivo de exemplo "file.nc". 
