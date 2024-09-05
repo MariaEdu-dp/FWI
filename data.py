@@ -3,9 +3,8 @@ import os
 from cdo import Cdo
 
 """
-Você pode trocar esse dataset pelo maior, de 10GB, que tem todos os dados do FWI, se necessário.
-Para isso, copie e cole o arquivo para a pasta "datasets", clique nele com o botão direito e clique em "Copy Path/Reference".
-Clique em "Path from Content Root, apague o link do xr.open_dataset() e, entre aspas, coloque o link novo.
+Para processar o dataset real do FWI, é necessário passar o arquivo para a pasta "datasets".
+Para isso, copie e cole o arquivo ou arraste ele diretamente para a pasta. 
 """
 def find_nc_file(directory):
     for filename in os.listdir(directory):
@@ -34,5 +33,6 @@ cdo.regres(input=area, output=output_file)
 
 print(f"Tendência calculada e salva em {output_file}")
 output_file = xr.open_dataset(output_file)
+slope = output_file * len(area.time)
 
 print(output_file)
