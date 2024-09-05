@@ -34,7 +34,7 @@ Os códigos podem ser utilizados no Pycharm ou no Google Colab. Para o Pycharm, 
    
    ![image](https://github.com/user-attachments/assets/12361faf-3bfa-4a47-b45a-48d2756deb2d)
    ```
-   pip install matplotlib numpy xarray cartopy 
+   pip install matplotlib numpy netcdf4 scipy pydap xarray cartopy 
    ```
    **OBS.:** MATPLOTLIB, Numpy, Xarray e Cartopy são pacotes básicos para manipulação de dados e visualização. De acordo com a necessidade de outros pacotes além destes, escreva no terminal. Para instalar, pressione _enter_.
 
