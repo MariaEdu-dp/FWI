@@ -21,6 +21,7 @@ print(dataset_xr)
 
 # Selecione a área de estudo e a variável de interesse
 area = dataset_xr["fwi"].sel(lat=slice(-60, 15), lon=slice(-90, -24))
+area.to_netcdf("subset_fwi.nc")
 
 # Inicialize a interface CDO
 cdo = Cdo()
