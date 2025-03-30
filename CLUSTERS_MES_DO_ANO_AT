@@ -1,0 +1,165 @@
+import xarray as xr
+import geopandas as gpd
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+import matplotlib.colors as mcolors
+
+# Configuration
+plt.rc("font", family="Arial")
+plt.style.use("ggplot")
+
+# 1. Load clusters
+clusters = gpd.read_file(r"D:/FACULDADE/FWI/CLUSTER_RECORTADO.gpkg", engine='pyogrio')
+clusters = clusters.to_crs(4674).dissolve(by="CLUSTER_ID")
+
+# 2. Color and month setup
+seasons = [
+    '#364fa2', '#3fa4d3', '#39d88c', '#66f817',
+    '#d9ff35', '#f0d000', '#f77300', '#dd1600',
+    '#e20080', '#b500cd', '#6c00e7', '#000d80'
+]
+month_names = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+               'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
+
+# 3. Process MEAN data
+base_dir = "MES_DO_ANO"
+mean_dir = f"{base_dir}/MEDIA"
+mean_data = []
+
+for decade_file in sorted(os.listdir(mean_dir)):
+    if not decade_file.endswith('.nc'):
+        continue
+
+    decade = decade_file.split('_')[-1].split('.')[0]
+    ds = xr.open_dataset(os.path.join(mean_dir, decade_file))
+    ds = ds.rio.write_crs("epsg:4674")
+
+    for cluster_id, geometry in zip(clusters.index, clusters.geometry):
+        clipped = ds.rio.clip([geometry], all_touched=True)
+        values = clipped['hmean_month'].values.flatten()
+
+        # Filter valid months (1-12)
+        valid_values = values[(values >= 1) & (values <= 12) & (~np.isnan(values))].astype(int)
+
+        if len(valid_values) == 0:
+            proportions = np.zeros(12)
+        else:
+            counts = np.bincount(valid_values, minlength=13)[1:]  # Get counts for months 1-12
+            proportions = counts / counts.sum()  # Normalize within cluster
+
+        for month, prop in enumerate(proportions, 1):
+            mean_data.append({
+                'Decade': decade,
+                'CLUSTER_ID': cluster_id,
+                'Month': month,
+                'Proportion': prop
+            })
+
+mean_df = pd.DataFrame(mean_data)
+
+# 4. Process STD data
+std_dir = f"{base_dir}/DESVIO_PADRAO"
+std_data = []
+
+for decade_file in sorted(os.listdir(std_dir)):
+    if not decade_file.endswith('.nc'):
+        continue
+
+    decade = decade_file.split('_')[-1].split('.')[0]
+    ds = xr.open_dataset(os.path.join(std_dir, decade_file))
+    ds = ds.rio.write_crs("epsg:4674")
+
+    for cluster_id, geometry in zip(clusters.index, clusters.geometry):
+        clipped = ds.rio.clip([geometry], all_touched=True)
+        values = clipped['hstd_month'].values.flatten()
+
+        # Filter valid months (1-12)
+        valid_values = values[(values >= 1) & (values <= 12) & (~np.isnan(values))].astype(int)
+
+        if len(valid_values) == 0:
+            proportions = np.zeros(12)
+        else:
+            counts = np.bincount(valid_values, minlength=13)[1:]
+            proportions = counts / counts.sum()
+
+        for month, prop in enumerate(proportions, 1):
+            std_data.append({
+                'Decade': decade,
+                'CLUSTER_ID': cluster_id,
+                'Month': month,
+                'Proportion': prop
+            })
+
+std_df = pd.DataFrame(std_data)
+
+# 5. Plotting
+for cluster_id in clusters.index.unique():
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 7), sharex=True)
+    fig.suptitle(f'Cluster {cluster_id}', fontsize=14)
+
+    # Plot MEAN data
+    cluster_mean = mean_df[mean_df['CLUSTER_ID'] == cluster_id]
+    pivot_mean = cluster_mean.pivot_table(
+        index='Decade',
+        columns='Month',
+        values='Proportion',
+        fill_value=0
+    )
+
+    bottom = np.zeros(len(pivot_mean))
+    for month in range(1, 13):
+        ax1.bar(
+            pivot_mean.index,
+            pivot_mean[month],
+            bottom=bottom,
+            color=seasons[month - 1],
+            label=month_names[month - 1],
+            width=0.8
+        )
+        bottom += pivot_mean[month]
+
+    ax1.set_title('Média', pad=10)
+    ax1.set_ylabel('Proporção')
+    ax1.set_ylim(0, 1)
+    ax1.axhline(1, color='black', linestyle=':', alpha=0.3)
+
+    # Plot STD data
+    cluster_std = std_df[std_df['CLUSTER_ID'] == cluster_id]
+    pivot_std = cluster_std.pivot_table(
+        index='Decade',
+        columns='Month',
+        values='Proportion',
+        fill_value=0
+    )
+
+    bottom = np.zeros(len(pivot_std))
+    for month in range(1, 13):
+        ax2.bar(
+            pivot_std.index,
+            pivot_std[month],
+            bottom=bottom,
+            color=seasons[month - 1],
+            label=month_names[month - 1],
+            width=0.8
+        )
+        bottom += pivot_std[month]
+
+    ax2.set_title('Desvio Padrão', pad=10)
+    ax2.set_ylabel('Proporção')
+    ax2.set_ylim(0, 1)
+    ax2.axhline(1, color='black', linestyle=':', alpha=0.3)
+
+    # Legend
+    handles = [plt.Rectangle((0, 0), 1, 1, color=seasons[i]) for i in range(12)]
+    fig.legend(
+        handles,
+        month_names,
+        loc='right',
+        fontsize=12
+    )
+
+    plt.subplots_adjust(right=0.9, left=0.094, bottom=0.038, top=0.91, wspace=0.701, hspace=0.127)
+    os.makedirs("FIGURAS/CLUSTERS_MES_DO_ANO", exist_ok=True)
+    plt.savefig(f"FIGURAS/CLUSTERS_MES_DO_ANO/MESES_MAIOR_MEDIA_DESVIO_PADRAO{cluster_id}.png", dpi=300)
