@@ -42,5 +42,20 @@ Os códigos podem ser utilizados no Pycharm ou no Google Colab. Para o Pycharm, 
    Para fazer as análises e ter as visualizações, já com o projeto aberto, vá em qualquer arquivo .py no repositório, dentro de qualquer pasta, e clique na setinha verde.
    **Atenção:** às vezes, ao lado da setinha, pode estar escrito _Current File_ ou _main_. Caso esteja escrito _main_, clique nele e depois em _Current File_, pois caso contrário, o Pycharm sempre irá interpretar (rodar) o mesmo código.
 
-***AVISO: na pasta datasets, tem um arquivo file.nc de exemplo, pois os dados do FWI são maiores do que o permitido pelo github, portanto, não foi possível fazer upload.***
-Para utilizar os dados do FWI, copie e cole os arquivos de interesse (ex. FWI.nc) ou recorte para a pasta datasets. Delete o arquivo de exemplo "file.nc". 
+## Descrição dos códigos
+
+```MES_DO_ANO.py```: Serve para processar os meses com os maiores índices de FWI em questão de média e desvio padrão com intervalos de 10 anos (pode ser alterado) que podem ser atribuídos a partir do seu dado (as tuplas citadas vão apenas até 1970). O mês que tiver o maior valor para a média e desvio padrão do pixel (i, j) terá seu valor atribuído ao pixel de acordo com o seu índice, onde os valores resultantes (de 1 a 12) serão relativos aos meses do ano (de Janeiro a Dezembro). Este código é contém o pré-processamento necessário para o código ```CLUSTERS_MES_DO_ANO_AT.py```. Os dados são salvos em ```datasets/MES_DO_ANO/MEDIA``` e ```datasets/MES_DO_ANO/DESVIO_PADRAO```. 
+
+```CLUSTERS_MES_DO_ANO_AT```: Serve para criar gráficos de meses do ano com as maiores médias e desvios padrões em relação à proporção dos clusters para cada intervalo selecionado no código ```MES_DO_ANO.py``` (no caso, ele cria uma série temporal de barras com intervalos de 10 anos). Salva seus dados em ```FIGURAS/CLUSTERS_MES_DO_ANO```. 
+
+```teste_____ecorregioes3.py```: Serve para criar gráficos de séries temporais desde 1940 para cada ecorregião. Este código cria 4 gráficos para cada cluster contido no shapefile buscando agregar todas as ecorregiões. 
+
+```ANOMALIA_ANUAL.py```: Cria anomalias anuais de FWI a partir da média total de FWI e depois salva a anomalia média para cada década. Os dados são salvos na pasta ```datasets/ANOMALIAS/TOTAL```. Vale lembrar que este código calcula as anomalias não baseadas na década, mas no período _total_. Depois, com as anomalias anuais calculadas, ele faz a média entre os 10 anos de cada década, visando obter a anomalia média anual para cada intervalo em análise.
+
+```ANOMALIA_MENSAL.py```: Cria anomalias mensais de FWI a partir da média mensal total de FWI e depois salva a anomalia mensal média para cada década. Os dados são salvos na pasta ```datasets/ANOMALIAS/MENSAIS```. Vale lembrar que este código calcula as anomalias não baseadas na década, mas sim no período _total_. Depois, com as anomalias mensais calculadas, ele faz a média, por exemplo, de todos os meses de janeiro da primeira década, visando obter a anomalia mensal média para o mês de janeiro para cada intervalo em análise (ele faz isso para todos os meses; cada arquivo contém as anomalias mensais).
+
+```ANOMALIA_SAZONAL.py```: Cria anomalias sazonais de FWI a partir da média sazonal total de FWI e depois salva a anomalia sazonal média para cada década. Os dados são salvos na pasta ```datasets/ANOMALIAS/SAZONAIS```. Vale lembrar que este código calcula as anomalias não baseadas na década, mas sim no período _total_. Depois, com as anomalias sazonais calculadas, ele faz a média, por exemplo, de todas as estações de Verão (DJF, 1) da primeira década, visando obter a anomalia sazonal média para a estação do Verão para cada intervalo em análise (ele faz isso para todas as estações; cada arquivo contém as anomalias sazonais). 
+
+```DECOMPOSICAO_ST_POR_CLUSTER.py```: Calcula decomposições de série temporal para todos os clusters a partir do pacote ```statsmodels```. Utiliza intervalos de 3 meses para definir 1) Sazonalidade, 2) Tendência e 3) Resíduos. Salva a figura na pasta ```FIGURAS```. Figura única.
+
+```medias_desvio_padrao.py```: Calcula média, desvio padrão e tendência para as décadas. Salva os arquivos nas seguintes pastas, respectivamente: ```datasets/media_10```, ```datasets/desvio_pad_10```, ```datasets/tendencia```. A tendência é relativa à tendência total da década. 
