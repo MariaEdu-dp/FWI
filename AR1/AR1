@@ -1,0 +1,179 @@
+import os
+from rasterio import features
+import numpy as np
+import xarray as xr
+import geopandas as gpd
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+import numpy as np
+from scipy.stats import t as student_t
+import cartopy.feature as cfeature
+import pandas as pd
+from shapely.geometry import mapping
+
+plt.rc("font", family="Arial")
+plt.style.use('ggplot')
+
+# ------ Load BAP shapefile
+bap = gpd.read_file(r"D:\FACULDADE\FWI\BAP_Int\ECORREGIOES_BAP.shp").to_crs("EPSG:4674")
+print(bap.columns)
+# --- Plotting to verify if everything is correct
+bap.plot(column="LEVEL3", edgecolor="k", legend=True, legend_kwds={"loc": "upper left", "frameon": "False"})
+plt.title("Level 3 ecoregions inside the Upper Paraguay Basin")
+plt.show()
+
+# ------ Load FWI dataset
+fwi = xr.open_mfdataset(r"D:/FACULDADE/FWI/*.nc")["fwinx"].sel(valid_time=slice("1991-01-01", "2024-12-31"))
+# Longitude correction
+fwi.coords["longitude"] = (fwi.coords["longitude"] + 180) % 360 - 180
+fwi = fwi.sortby("longitude")
+fwi = fwi.rename({"valid_time": "time", "longitude": "lon", "latitude": "lat"})
+fwi = fwi.resample(time="ME").mean()
+print(fwi)
+
+# ------ Load SPI dataset
+spi = xr.open_mfdataset(r"D:\FACULDADE\Nova pasta\TCC\CLIM\SPI\*.nc", combine='by_coords').drop("band")["spc03"].sel(time=slice("1991-01-01", "2024-12-31"))
+spi = spi.sortby("lat")
+# Interpolate SPI to the FWI grid, to be spatially compatible
+spi = spi.interp(lon=fwi.lon, lat=fwi.lat, method="linear")
+spi = spi.squeeze("band", drop=True)  # Removes the singleton 'band' dimension
+spi = spi.resample(time="ME").mean()
+print(spi)
+
+# --- Create function to clip a dataset to shapefile
+def clip(ds, gdf):
+    ds = ds.rio.set_spatial_dims(x_dim="lon", y_dim="lat", inplace=True)
+    ds = ds.rio.write_crs("EPSG:4674", inplace=True)
+    ds = ds.rio.clip(gdf.geometry, gdf.crs, drop=True, invert=False)
+    return ds
+
+# --- Apply clipping
+fwi = clip(fwi, bap)
+spi = clip(spi, bap)
+
+# ------ Verify if the clip was okay/correct
+fig, (ax1, ax2) = plt.subplots(
+    2, 1, # -> Columns and rows
+    figsize=(8, 10),
+    subplot_kw={"projection": ccrs.PlateCarree()}  # Use PlateCarree for lat/lon data
+)
+
+# --- Plot FWI (RdYlGn_r colormap)
+fwi_plot = fwi.isel(time=-1).plot.contourf(
+    ax=ax1,
+    cmap="RdYlGn_r",
+    levels=7,  # Adjust number of contour levels
+    add_colorbar=True,
+    transform=ccrs.PlateCarree()  # Important for Cartopy
+)
+bap.boundary.plot(color="k", ax=ax1)
+ax1.set_title("FWI clipped to UPB (time=0)", fontsize=12)
+
+# Plot SPI on the second axis
+spi_plot = spi.isel(time=-1).plot.contourf(
+    ax=ax2,
+    cmap="RdBu",
+    levels=7,
+    add_colorbar=True,
+    transform=ccrs.PlateCarree()
+)
+bap.boundary.plot(color="k", ax=ax2)
+ax2.set_title("SPI clipped to UPB (time=0)", fontsize=12)
+
+# Adjust layout to prevent overlapping
+plt.show()
+
+# ------ Time Series of SPI and FWI (Seasonal Perspective) ------
+# Define seasons using month numbers
+seasons = {
+    "summer": [12, 1, 2],
+    "fall": [3, 4, 5],
+    "winter": [6, 7, 8],
+    "spring": [9, 10, 11],
+}
+
+results = {}
+for season_name, months in seasons.items():
+    print(f"Processing {season_name}...")
+
+    # Select months for the season
+    fwi_season = fwi.sel(time=fwi["time.month"].isin(months))
+    spi_season = spi.sel(time=spi["time.month"].isin(months))
+
+    # Align in time
+    print("Aligning both datasets.")
+    #fwi_season, spi_season = xr.align(fwi_season, spi_season)
+    print(spi_season)
+
+    # Calculate Pearson correlation
+    print(f"Calculating correlation for the {season_name}...")
+    r = xr.corr(fwi_season, spi_season, dim="time")
+
+    # Count valid (non-NaN) time steps per pixel
+    print("Counting valid timesteps...")
+    n = fwi_season.where(np.isfinite(fwi_season) & np.isfinite(spi_season)).count(dim="time")
+
+    # Calculate t-statistic
+    print("Calculating t-statistics...")
+    t_stat = r * np.sqrt((n - 2) / (1 - r ** 2))
+
+    # Compute p-values (two-tailed test)
+    print("Computing p-values...")
+    p_val = xr.apply_ufunc(
+        lambda t, df: 2 * student_t.sf(np.abs(t), df),
+        t_stat, n - 2,
+        vectorize=True,
+        dask="allowed",
+        output_dtypes=[float]
+    )
+
+    # Mask r values where not significant
+    r_sig = r.where(p_val < 0.05)
+
+    # Save r as GeoTIFF
+    print("Saving GeoTIFF of correlation...")
+    r.name = "pearson_r"
+    r.rio.set_spatial_dims(x_dim="lon", y_dim="lat", inplace=True)
+    r.rio.write_crs("EPSG:4674", inplace=True)
+    r.rio.to_raster(rf"D:\FACULDADE\FWI\AR1\r_spi_fwi_{season_name}.tif")
+
+    # Extract non-significant areas (p >= 0.05)
+    print("Extracting and saving non-significant areas as vector...")
+    mask = (p_val >= 0.05).astype("uint8")
+    mask.name = "non_significant"
+    mask.rio.set_spatial_dims(x_dim="lon", y_dim="lat", inplace=True)
+    mask.rio.write_crs("EPSG:4674", inplace=True)
+
+    # Convert mask to numpy array and get transform
+    mask_data = mask.astype('uint8').values  # Get the numpy array
+    transform = mask.rio.transform()  # Get the affine transform
+
+    # Polygonize the raster
+    shapes = features.shapes(mask_data, transform=transform, mask=(mask_data == 1))
+
+    # Convert to GeoDataFrame
+    gdf = gpd.GeoDataFrame.from_features(
+        [{"properties": {"non_significant": value}, "geometry": geom}
+         for geom, value in shapes],
+        crs="EPSG:4674"
+    )
+
+    # Filter only the significant areas (value == 1)
+    gdf = gdf[gdf["non_significant"] == 1].copy()
+    gdf = gdf[gdf["non_significant"] == 1].copy()
+    gdf["season"] = season_name
+
+    # Save each season's non-significant zones as its own layer in the GeoPackage
+    gdf.to_file(rf"D:\FACULDADE\FWI\AR1\non-significant_areas_{season_name}.shp", layer=season_name)
+
+    print(f"{season_name.capitalize()} saved successfully!\n")
+
+    # Store results (optional for further use)
+    results[season_name] = {
+        "r": r,
+        "p": p_val,
+        "r_sig": r_sig,
+        "t": t_stat,
+        "n": n,
+    }
+
