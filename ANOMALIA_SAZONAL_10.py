@@ -3,50 +3,54 @@ import geopandas as gpd
 import rioxarray
 from shapely.geometry import mapping
 import os
+import numpy as np
 
-data = xr.open_mfdataset("datasets/FWI/*.nc")
+# Abrir o dataset e selecionar a variável e o intervalo de datas desejado
+dt = xr.open_mfdataset("D:/FACULDADE/FWI/*.nc")["fwinx"].sel(valid_time=slice("1940-01-01", "2023-12-31"))
 
-data.coords["longitude"] = (data.coords["longitude"] + 180) % 360 - 180
-data = data.sortby(data.longitude)
+# Ajustar longitudes se necessário (de 0-360 para -180 a 180)
+dt.coords["longitude"] = (dt.coords["longitude"] + 180) % 360 - 180
+dt = dt.sortby(dt.longitude)
 
-shapefile = gpd.read_file("ecorregioes/ecorregiões_cluster/CLUSTER_RECORTADO.gpkg").to_crs(4674)
-geom_sa = shapefile.geometry
-print(geom_sa)
-
-# Definir as dimensões espaciais e o CRS no NetCDF
-ds = data.rio.set_spatial_dims(x_dim="longitude", y_dim="latitude", inplace=True)
+# Abrir shapefile e recortar o NetCDF
+shapefile = gpd.read_file("D:/FACULDADE/FWI/CLUSTER_RECORTADO.gpkg").to_crs(4674)
+ds = dt.rio.set_spatial_dims(x_dim="longitude", y_dim="latitude", inplace=True)
 ds = ds.rio.write_crs(f"epsg:4674", inplace=True)
-# Recortar o NetCDF para a área da ecorregião
-data = ds.rio.clip(shapefile.geometry.apply(mapping), drop=True)
+dt = ds.rio.clip(shapefile.geometry.apply(mapping), drop=True)
 
-data_1940 = data.sel(valid_time=slice("1940-01-03", "1949-12-31"))
-data_1950 = data.sel(valid_time=slice("1950-01-01", "1959-12-31"))
-data_1960 = data.sel(valid_time=slice("1960-01-01", "1969-12-31"))
-data_1970 = data.sel(valid_time=slice("1970-01-01", "1979-12-31"))
-data_1980 = data.sel(valid_time=slice("1980-01-01", "1989-12-31"))
-data_1990 = data.sel(valid_time=slice("1990-01-01", "1999-12-31"))
-data_2000 = data.sel(valid_time=slice("2000-01-01", "2009-12-31"))
-data_2010 = data.sel(valid_time=slice("2010-01-01", "2019-12-31"))
-data_2020 = data.sel(valid_time=slice("2020-01-01", "2023-12-31"))
+# Reamostrar os dados para médias sazonais
+seasonal_mean = dt.resample(valid_time="QS-DEC").mean(dim="valid_time")
 
-# Médias
+# Criar a coordenada 'season' manualmente
+season_mapping = {12: "DJF", 1: "DJF", 2: "DJF",
+                  3: "MAM", 4: "MAM", 5: "MAM",
+                  6: "JJA", 7: "JJA", 8: "JJA",
+                  9: "SON", 10: "SON", 11: "SON"}
 
-data = [data_1940, data_1950, data_1960, data_1970, data_1980, data_1990, data_2000, data_2010, data_2020]
+season_labels = [season_mapping[m] for m in seasonal_mean["valid_time"].dt.month.values]
+seasonal_mean = seasonal_mean.assign_coords(season=("valid_time", season_labels))
 
-for dataset in data:
-    ano = dataset.valid_time.dt.year.values[:1]
-    print(ano)
-    # Calcular a média mensal para o período de referência (1940-2023)
-    # Calcular a média sazonal dos dados diários, começando o verão em novembro
-    seasonal_mean = dataset.resample(valid_time="QS-NOV").mean(dim="valid_time")
+# Calcular a climatologia sazonal
+climatological_mean = seasonal_mean.groupby("season").mean(dim="valid_time")
 
-    # Calcular a média climatológica para cada estação ao longo do período
-    climatological_seasonal_mean = seasonal_mean.groupby("valid_time.season").mean(dim="valid_time")
+# Calcular as anomalias sazonais
+seasonal_anomaly = seasonal_mean.groupby("season") - climatological_mean
 
-    # Calcular as anomalias sazonais subtraindo a média climatológica de cada estação
-    seasonal_anomaly = seasonal_mean.groupby("valid_time.season") - climatological_seasonal_mean
+# Criar diretório de saída
+os.makedirs("datasets/ANOMALIAS/SAZONAIS", exist_ok=True)
 
-    # Calcular a anomalia sazonal total (média das anomalias sazonais ao longo dos anos)
-    seasonal_anomaly_total = seasonal_anomaly.groupby("valid_time.season").mean(dim="valid_time")
+# Criar intervalos de décadas
+bins = np.arange(1940, 2030, 10)  # De 1940 até 2029, em passos de 10 anos
 
-    seasonal_anomaly_total.to_netcdf(f"datasets/ANOMALIA_SAZONAL_10_EM_10/anomalia_sazonal_{ano}.nc")
+# Salvar os arquivos por década
+for start_year in bins[:-1]:  # Ignora o último valor (2030)
+    end_year = start_year + 9
+    decade_anomaly = seasonal_anomaly.sel(valid_time=slice(f"{start_year}-01-01", f"{end_year}-12-31"))
+
+    # Fazer a média para cada estação dentro da década
+    decade_anomaly_mean = decade_anomaly.groupby("season").mean(dim="valid_time")
+
+    # Salvar o arquivo NetCDF
+    output_path = f"datasets/ANOMALIAS/SAZONAIS/ANOMALIA_SAZONAL_{start_year}-{end_year}.nc"
+    decade_anomaly_mean.to_netcdf(output_path)
+    print(f"Anomalia sazonal para a década {start_year}-{end_year} salva.")
