@@ -163,3 +163,4 @@ for cluster_id in clusters.index.unique():
     plt.subplots_adjust(right=0.9, left=0.094, bottom=0.038, top=0.91, wspace=0.701, hspace=0.127)
     os.makedirs("FIGURAS/CLUSTERS_MES_DO_ANO", exist_ok=True)
     plt.savefig(f"FIGURAS/CLUSTERS_MES_DO_ANO/MESES_MAIOR_MEDIA_DESVIO_PADRAO{cluster_id}.png", dpi=300)
+
