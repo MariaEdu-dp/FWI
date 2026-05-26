@@ -1,0 +1,93 @@
+import os
+import numpy as np
+import xarray as xr
+import geopandas as gpd
+import rioxarray
+import matplotlib.pyplot as plt
+
+# ==== Output directory
+out_dir = r"D:\FACULDADE\FWI\AR1\COMPOSICOES"
+os.makedirs(out_dir, exist_ok=True)
+
+# ------ Load BAP shapefile
+bap = gpd.read_file(r"D:\FACULDADE\FWI\BAP_Int\ECORREGIOES_BAP.shp").to_crs("EPSG:4674")
+print(bap.columns)
+# --- Plotting to verify if everything is correct
+bap.plot(column="LEVEL3", edgecolor="k", legend=True, legend_kwds={"loc": "upper left", "frameon": "False"})
+plt.title("Level 3 ecoregions inside the Upper Paraguay Basin")
+plt.show()
+
+# ==== Load FWI dataset
+fwi = xr.open_mfdataset(r"D:/FACULDADE/FWI/*.nc")["fwinx"].sel(valid_time=slice("1991-01-01", "2024-12-31"))
+fwi.coords["longitude"] = (fwi.coords["longitude"] + 180) % 360 - 180
+fwi = fwi.sortby("longitude")
+fwi = fwi.rename({"valid_time": "time", "longitude": "lon", "latitude": "lat"})
+fwi = fwi.resample(time="ME").mean()
+# Set spatial attributes for clipping
+fwi = fwi.rio.set_spatial_dims(x_dim="lon", y_dim="lat")
+fwi = fwi.rio.write_crs("EPSG:4674")
+
+# ==== Load SPI dataset
+spi = xr.open_mfdataset(r"D:\FACULDADE\Nova pasta\TCC\CLIM\SPI\*.nc", combine='by_coords').drop("band")["spc03"].sel(time=slice("1991-01-01", "2024-12-31"))
+spi = spi.sortby("lat")
+spi = spi.interp(lon=fwi.lon, lat=fwi.lat, method="linear")
+spi = spi.resample(time="ME").mean()
+# Set spatial attributes for clipping
+spi = spi.rio.set_spatial_dims(x_dim="lon", y_dim="lat")
+spi = spi.rio.write_crs("EPSG:4674")
+print("Files open.")
+
+def clip(ds, gdf):
+    ds = ds.rio.set_spatial_dims(x_dim="lon", y_dim="lat", inplace=True)
+    ds = ds.rio.write_crs("EPSG:4674", inplace=True)
+    ds = ds.rio.clip(gdf.geometry, gdf.crs, drop=True, invert=False)
+    return ds
+
+# --- Apply clipping
+fwi = clip(fwi, bap)
+spi = clip(spi, bap)
+
+# ==== SPI categories
+spi_categories = {
+    "extremely_dry": (-np.inf, -2.0),
+    "severely_dry": (-2.0, -1.5),
+    "moderately_dry": (-1.5, -1.0),
+    "near_normal": (-1.0, 1.0),
+    "moderately_wet": (1.0, 1.5),
+    "very_wet": (1.5, 2.0),
+    "extremely_wet": (2.0, np.inf),
+}
+
+# ==== Cálculo da coocorrência SPI–FWI ====
+
+# --- 1. Calcular os limiares de FWI (percentis)
+fwi_p95 = fwi.quantile(0.95, dim="time")
+fwi_p75 = fwi.quantile(0.75, dim="time")  # para extremos frios/secos, se quiser usar
+
+# --- 2. Loop por categorias SPI
+results = {}
+for cat, (low, high) in spi_categories.items():
+    print(f"Calculando coocorrência para categoria: {cat}")
+
+    # Cria máscara SPI para a categoria
+    spi_mask = (spi >= low) & (spi < high)
+
+    # FWI extremos (aqui usamos o percentil 95, mas você pode mudar para 90)
+    fwi_extreme_mask = fwi > fwi_p95
+
+    # Coocorrência (True quando SPI e FWI são extremos simultaneamente)
+    cooccurrence = spi_mask & fwi_extreme_mask
+
+    # --- 3. Frequência relativa (por pixel)
+    freq = cooccurrence.sum(dim="time") / spi_mask.sum(dim="time")
+
+    # --- 4. Converter para porcentagem
+    freq = freq * 100
+    results[cat] = freq
+
+# --- 5. Empacotar resultados em um Dataset
+cooc_ds = xr.Dataset(results)
+
+# --- 7. (Opcional) Salvar o dataset para uso posterior
+cooc_ds.to_netcdf(os.path.join(out_dir, "SPI_FWI_coocurrencep5.nc"))
+print("Cálculo de coocorrência finalizado e salvo!")
