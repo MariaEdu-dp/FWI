@@ -1,0 +1,81 @@
+import os
+import rasterio
+import geopandas as gpd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from rasterio.mask import mask
+
+# Configuração de estilo
+plt.rc("font", family="Arial")
+plt.style.use("ggplot")
+
+# Paths
+tif_dir = r"D:\FACULDADE\FWI\AR1\CORRELACAO_r\TIFFs"
+pval_dir = r"D:\FACULDADE\FWI\AR1\CORRELACAO_r\SIGNIFICANCIA"
+
+# Define season colors
+season_colors = {
+    'summer': 'goldenrod',
+    'fall': 'sienna',
+    'winter': 'teal',
+    'spring': 'crimson'
+}
+
+
+def get_season(filename):
+    for season in season_colors.keys():
+        if season in filename.lower():
+            return season
+    return None
+
+
+# Collect data in long format for seaborn
+data_list = []
+
+for tif_file in os.listdir(tif_dir):
+    if tif_file.endswith(".tif"):
+        season = get_season(tif_file)
+        if not season:
+            continue
+
+        tif_path = os.path.join(tif_dir, tif_file)
+        with rasterio.open(tif_path) as src:
+            corr_data = src.read(1).astype(float)
+
+        # Find shapefile (non-significant mask)
+        shapefile = [f for f in os.listdir(pval_dir) if season in f.lower() and f.endswith(".shp")]
+        if not shapefile:
+            continue
+        shp_path = os.path.join(pval_dir, shapefile[0])
+        gdf = gpd.read_file(shp_path)
+
+        # Mask OUT the nonsignificant pixels
+        with rasterio.open(tif_path) as src:
+            sig_image, _ = mask(src, gdf.geometry, crop=False, invert=True)
+            sig_image = sig_image[0]
+
+        vals = sig_image[np.isfinite(sig_image)]
+        for v in vals:
+            data_list.append({"Season": season.capitalize(), "r value": v})
+
+# Convert to DataFrame for seaborn
+import pandas as pd
+
+df = pd.DataFrame(data_list)
+
+# Capitalized palette
+season_colors_cap = {k.capitalize(): v for k, v in season_colors.items()}
+
+plt.figure(figsize=(5, 8))
+
+sns.boxplot(
+    x="Season", y="r value", data=df,
+    palette=season_colors_cap, showfliers=True
+)
+
+plt.ylim(-1, 1)
+plt.ylabel("r value")
+plt.tight_layout()
+plt.savefig("seasonal_correlation_boxplots.png", dpi=400)
+plt.show()
