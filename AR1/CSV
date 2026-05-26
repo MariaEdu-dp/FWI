@@ -1,0 +1,186 @@
+import os
+import numpy as np
+import xarray as xr
+import geopandas as gpd
+import pandas as pd
+import rioxarray
+from tqdm import tqdm
+from dask.diagnostics import ProgressBar
+
+# =============================
+# CONFIG
+# =============================
+seasons = {
+    "Summer": [12, 1, 2],
+    "Fall": [3, 4, 5],
+    "Winter": [6, 7, 8],
+    "Spring": [9, 10, 11]
+}
+
+ecoregion_col = "LEVEL3"
+output_dir = "seasonal_outputs"
+os.makedirs(output_dir, exist_ok=True)
+
+# =============================
+# FUNCTIONS
+# =============================
+
+def fix_djf_year(da):
+    year = da["time.year"]
+    month = da["time.month"]
+    new_year = xr.where(month == 12, year + 1, year)
+    return da.assign_coords(season_year=new_year)
+
+
+def compute_seasonal_means(da):
+    da = fix_djf_year(da)
+    season_dict = {}
+
+    for season, months in seasons.items():
+        print(f"   → {season}")
+
+        tmp = da.sel(time=da["time.month"].isin(months))
+        tmp = tmp.groupby("season_year").mean("time")
+        tmp = tmp.rename({"season_year": "year"})
+
+        tmp = tmp.rio.set_spatial_dims(x_dim="lon", y_dim="lat")
+        tmp = tmp.rio.write_crs("EPSG:4674")
+
+        season_dict[season] = tmp
+
+    return season_dict
+
+
+# =============================
+# 1. LOAD ECOREGIONS
+# =============================
+print("1. Loading ecoregions...")
+
+bap = gpd.read_file(
+    r"D:\FACULDADE\FWI\BAP_Int\ECORREGIOES_BAP.shp"
+).to_crs("EPSG:4674")
+
+print(f"   → {len(bap)} regions loaded")
+
+# =============================
+# 2. LOAD SPI
+# =============================
+print("\n2. Loading SPI...")
+
+spi = xr.open_mfdataset(
+    r"D:\FACULDADE\Nova pasta\TCC\CLIM\SPI\*.nc",
+    combine="by_coords",
+    chunks={"time": -1}
+)["spc03"]
+
+# Remove band dimension (CRITICAL)
+if "band" in spi.dims:
+    spi = spi.squeeze("band", drop=True)
+
+spi = spi.sortby("lon")
+spi = spi.resample(time="ME").mean()
+
+spi = spi.rio.set_spatial_dims(x_dim="lon", y_dim="lat")
+spi = spi.rio.write_crs("EPSG:4674")
+
+# =============================
+# 3. LOAD FWI
+# =============================
+print("\n3. Loading FWI...")
+
+fwi = xr.open_mfdataset(
+    r"D:/FACULDADE/FWI/*.nc",
+    combine="by_coords",
+    chunks={"time": -1}
+)["fwinx"].sel(valid_time=slice("1991-01-01", "2024-12-31"))
+
+fwi.coords["longitude"] = (fwi.coords["longitude"] + 180) % 360 - 180
+fwi = fwi.sortby("longitude")
+
+fwi = fwi.rename({
+    "valid_time": "time",
+    "longitude": "lon",
+    "latitude": "lat"
+})
+
+fwi = fwi.resample(time="ME").mean()
+
+fwi = fwi.rio.set_spatial_dims(x_dim="lon", y_dim="lat")
+fwi = fwi.rio.write_crs("EPSG:4674")
+
+# =============================
+# 4. SEASONAL DATA
+# =============================
+print("\n4. Computing seasonal datasets...")
+
+print("→ SPI")
+spi_seasons = compute_seasonal_means(spi)
+
+print("→ FWI")
+fwi_seasons = compute_seasonal_means(fwi)
+
+# =============================
+# 5. PROCESS ECOREGIONS
+# =============================
+print("\n5. Processing ecoregions...")
+
+with ProgressBar():  # 🔥 DASK MONITOR
+
+    for idx, row in tqdm(bap.iterrows(), total=len(bap), desc="Ecoregions"):
+
+        eco_name = str(row[ecoregion_col]).replace(" ", "_")
+        geom = [row.geometry]
+
+        df_all = []
+
+        for season in seasons.keys():
+
+            try:
+                spi_da = spi_seasons[season]
+                fwi_da = fwi_seasons[season]
+
+                # Clip
+                spi_clip = spi_da.rio.clip(geom, bap.crs, drop=True)
+                fwi_clip = fwi_da.rio.clip(geom, bap.crs, drop=True)
+
+                # Spatial mean
+                spi_ts = spi_clip.mean(dim=["lat", "lon"], skipna=True)
+                fwi_ts = fwi_clip.mean(dim=["lat", "lon"], skipna=True)
+
+                # Align
+                spi_ts, fwi_ts = xr.align(spi_ts, fwi_ts, join="inner")
+
+                # Compute (DASK executes here)
+                spi_vals = spi_ts.values
+                fwi_vals = fwi_ts.values
+                years = spi_ts["year"].values.astype(int)
+
+                if len(years) == 0:
+                    continue
+
+                # DataFrame (clean + scientific)
+                df = pd.DataFrame({
+                    "year": years,
+                    "season": season,
+                    "SPI": spi_vals,
+                    "FWI": fwi_vals
+                })
+
+                df_all.append(df)
+
+            except Exception as e:
+                print(f"\n⚠️ Error in {eco_name} ({season}): {e}")
+
+        if len(df_all) == 0:
+            continue
+
+        final_df = pd.concat(df_all, ignore_index=True)
+
+        # Sort nicely
+        final_df = final_df.sort_values(["year", "season"])
+
+        # Save CSV
+        filepath = os.path.join(output_dir, f"{eco_name}.csv")
+        final_df.to_csv(filepath, index=False)
+
+print("\n✅ DONE!")
