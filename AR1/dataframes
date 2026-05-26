@@ -1,0 +1,224 @@
+import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pymannkendall as mk
+from scipy.stats import pearsonr
+
+# =============================
+# CONFIG
+# =============================
+plt.rc("font", family="Arial")
+plt.style.use("ggplot")
+
+csv_folder = "seasonal_outputs"
+
+season_colors = {
+    "Summer": "goldenrod",
+    "Fall": "sienna",
+    "Winter": "teal",
+    "Spring": "crimson"
+}
+
+SEASONS = ["Summer", "Fall", "Winter", "Spring"]
+
+# =============================
+# LOAD FILES
+# =============================
+files = sorted([f for f in os.listdir(csv_folder) if f.endswith(".csv")])
+files = files[:9]
+
+# =============================
+# FUNCTION: TIME SERIES PLOTS
+# =============================
+def plot_variable(var_name, output_name):
+
+    fig, axes = plt.subplots(3, 3, figsize=(8, 5), sharex=True, sharey=True)
+    axes = axes.flatten()
+
+    for i, file in enumerate(files):
+
+        df = pd.read_csv(os.path.join(csv_folder, file))
+        df = df.sort_values(["year", "season"])
+
+        ax = axes[i]
+
+        for season in season_colors:
+
+            df_s = df[df["season"] == season]
+
+            if df_s.empty:
+                continue
+
+            ax.plot(
+                df_s["year"],
+                df_s[var_name],
+                color=season_colors[season],
+                linewidth=1.25,
+                label=season if i == 0 else None
+            )
+
+        if var_name == "SPI":
+            ax.axhline(0, color="black", linewidth=0.8)
+
+        ax.set_title(f"Ecoregion {file.replace('.csv','')}", fontsize=10)
+        ax.margins(x=0)
+
+    handles, labels = axes[0].get_legend_handles_labels()
+
+    fig.legend(handles, labels, loc="lower center", ncols=4, frameon=False)
+
+    plt.tight_layout(rect=[0, 0.05, 1, 1])
+    plt.savefig(output_name, dpi=300, bbox_inches="tight")
+    plt.show()
+
+# =============================
+# STORAGE
+# =============================
+mk_results = []
+r2_results = []
+
+# =============================
+# MAIN LOOP
+# =============================
+for file in os.listdir(csv_folder):
+
+    if not file.endswith(".csv"):
+        continue
+
+    df = pd.read_csv(os.path.join(csv_folder, file))
+    name = file.replace(".csv", "")
+
+    # =============================
+    # FWI ANOMALIES (CRITICAL)
+    # =============================
+    df["FWI_anom"] = df["FWI"] - df.groupby("season")["FWI"].transform("mean")
+
+    # =============================
+    # ANNUAL SERIES (MK)
+    # =============================
+    df_annual = df.groupby("year")[["SPI", "FWI"]].mean().reset_index()
+
+    spi_mk = mk.hamed_rao_modification_test(df_annual["SPI"].values)
+    fwi_mk = mk.hamed_rao_modification_test(df_annual["FWI"].values)
+
+    mk_results.append({
+        "ecoregion": name,
+        "variable": "SPI",
+        "season": "Annual",
+        "trend": spi_mk.trend,
+        "slope": spi_mk.slope,
+        "p_value": spi_mk.p,
+        "tau": spi_mk.Tau,
+        "significant": spi_mk.p < 0.05
+    })
+
+    mk_results.append({
+        "ecoregion": name,
+        "variable": "FWI",
+        "season": "Annual",
+        "trend": fwi_mk.trend,
+        "slope": fwi_mk.slope,
+        "p_value": fwi_mk.p,
+        "tau": fwi_mk.Tau,
+        "significant": fwi_mk.p < 0.05
+    })
+
+    # =============================
+    # SEASONAL ANALYSIS
+    # =============================
+    for season in SEASONS:
+
+        df_s = df[df["season"] == season].sort_values("year")
+
+        if len(df_s) < 5:
+            continue
+
+        # ---- MK seasonal
+        spi_mk_s = mk.hamed_rao_modification_test(df_s["SPI"].values)
+        fwi_mk_s = mk.hamed_rao_modification_test(df_s["FWI"].values)
+
+        mk_results.append({
+            "ecoregion": name,
+            "variable": "SPI",
+            "season": season,
+            "trend": spi_mk_s.trend,
+            "slope": spi_mk_s.slope,
+            "p_value": spi_mk_s.p,
+            "tau": spi_mk_s.Tau,
+            "significant": spi_mk_s.p < 0.05
+        })
+
+        mk_results.append({
+            "ecoregion": name,
+            "variable": "FWI",
+            "season": season,
+            "trend": fwi_mk_s.trend,
+            "slope": fwi_mk_s.slope,
+            "p_value": fwi_mk_s.p,
+            "tau": fwi_mk_s.Tau,
+            "significant": fwi_mk_s.p < 0.05
+        })
+
+        # =============================
+        # R² USING FWI ANOMALIES
+        # =============================
+        x = df_s["FWI_anom"].values   # 🔥 FIXED
+        y = df_s["SPI"].values
+
+        valid = np.isfinite(x) & np.isfinite(y)
+
+        if valid.sum() < 5:
+            r2 = np.nan
+        else:
+            r, _ = pearsonr(x[valid], y[valid])
+            r2 = np.clip(r**2, 0, 1)
+
+        r2_results.append({
+            "Ecoregion": name,
+            "Season": season,
+            "R2": r2
+        })
+
+# =============================
+# SAVE MK
+# =============================
+df_mk = pd.DataFrame(mk_results)
+df_mk.to_csv("mannkendall_summary.csv", index=False)
+
+print("\n✅ MK summary saved!")
+
+# =============================
+# HEATMAP
+# =============================
+df_r2 = pd.DataFrame(r2_results)
+
+heat = df_r2.pivot_table(
+    index="Ecoregion",
+    columns="Season",
+    values="R2"
+).reindex(columns=SEASONS)
+
+plt.figure(figsize=(10, 6))
+
+sns.heatmap(
+    heat,
+    cmap="YlOrBr",
+    vmin=0, vmax=1,
+    annot=True,
+    fmt=".2f"
+)
+
+plt.title("Seasonal R²")
+plt.tight_layout()
+plt.savefig("figs/heatmap_r2_spi_fwi_anom.png", dpi=300)
+plt.show()
+
+# =============================
+# PLOTS
+# =============================
+plot_variable("SPI", "figs/spi_sazonal_por_ecorregiao.png")
+plot_variable("FWI", "figs/fwi_sazonal_por_ecorregiao.png")
+
+print("\n🚀 ALL DONE!")
