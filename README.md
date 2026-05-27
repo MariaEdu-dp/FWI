@@ -44,7 +44,7 @@ Os códigos podem ser utilizados no Pycharm ou no Google Colab. Para o Pycharm, 
 
 ## Descrição dos códigos
 
-```MES_DO_ANO.py```: Serve para processar os meses com os maiores índices de FWI em questão de média e desvio padrão com intervalos de 10 anos (pode ser alterado) que podem ser atribuídos a partir do seu dado (as tuplas citadas vão apenas até 1970). O mês que tiver o maior valor para a média e desvio padrão do pixel (i, j) terá seu valor atribuído ao pixel de acordo com o seu índice, onde os valores resultantes (de 1 a 12) serão relativos aos meses do ano (de Janeiro a Dezembro). Este código é contém o pré-processamento necessário para o código ```CLUSTERS_MES_DO_ANO_AT.py```. Os dados são salvos em ```datasets/MES_DO_ANO/MEDIA``` e ```datasets/MES_DO_ANO/DESVIO_PADRAO```. 
+```MES_DO_ANO.py```: Serve para processar os meses com os maiores índices de FWI em questão de média e desvio padrão com intervalos de 10 anos (pode ser alterado) que podem ser atribuídos a partir do seu dado (as tuplas citadas vão apenas até 1970). O mês que tiver o maior valor para a média e desvio padrão do pixel (i, j) terá seu valor atribuído ao pixel de acordo com o seu índice, onde os valores resultantes (de 1 a 12) serão relativos aos meses do ano (de Janeiro a Dezembro). Este código contém o pré-processamento necessário para o código ```CLUSTERS_MES_DO_ANO_AT.py```. Os dados são salvos em ```datasets/MES_DO_ANO/MEDIA``` e ```datasets/MES_DO_ANO/DESVIO_PADRAO```. 
 
 ```CLUSTERS_MES_DO_ANO_AT```: Serve para criar gráficos de meses do ano com as maiores médias e desvios padrões em relação à proporção dos clusters para cada intervalo selecionado no código ```MES_DO_ANO.py``` (no caso, ele cria uma série temporal de barras com intervalos de 10 anos). Salva seus dados em ```FIGURAS/CLUSTERS_MES_DO_ANO```. 
 
@@ -59,3 +59,5 @@ Os códigos podem ser utilizados no Pycharm ou no Google Colab. Para o Pycharm, 
 ```DECOMPOSICAO_ST_POR_CLUSTERR.py```: Calcula decomposições de série temporal para todos os clusters a partir do pacote ```statsmodels```. Utiliza o período de 3 meses para definir 1) Sazonalidade, 2) Tendência e 3) Resíduos. Salva a figura na pasta ```FIGURAS```. Figura única.
 
 ```medias_desvio_padrao.py```: Calcula média, desvio padrão e tendência para as décadas. Salva os arquivos nas seguintes pastas, respectivamente: ```datasets/media_10```, ```datasets/desvio_pad_10```, ```datasets/tendencia```. A tendência é relativa à tendência total da década. 
+
+```SIGNIFICANCIA2.py```: Calcula a tendência total obtida para o período escolhido. 
